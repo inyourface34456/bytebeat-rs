@@ -1,38 +1,101 @@
-mod traits;
-
-use crate::traits::TypeToFormat;
-use hound::{WavSpec, WavWriter};
-use std::mem::size_of;
+use hound::{WavSpec, WavWriter, SampleFormat};
+use std::fs::File;
+use std::env::args;
+use std::io::Read;
+use jstime_core as jstime;
 // use rand::prelude::*;
 
-type SampleType = i8;
-const SAMPLE_RATE: u32 = 8000;
-const BITS_PER_SAMPLE: u16 = (size_of::<SampleType>() * 8) as u16;
-const NUM_CHANNELS: u16 = 1;
-const DURATION: u64 = SAMPLE_RATE as u64 * 60*NUM_CHANNELS as u64;
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    jstime::init(None);
+    let mut scope = jstime::JSTime::new(
+        jstime::Options::default()
+    );
+
+    let mut source = String::new();
+    let mut file = File::open(args().into_iter().collect::<Vec<String>>()[1].clone()).expect("could not open file");
+    file.read_to_string(&mut source).expect("could not read file");
+
+    let _ = match scope.run_script(source.as_str(), "main") {
+        Ok(_) => {},
+        Err(err) => panic!("{err}"),
+    };
+
+    let discription: Vec<String> = match scope.run_script("d();", "main") {
+        Ok(desc) => {
+            desc.split(',').map(|x| x.to_string()).collect()
+        },
+        Err(err) => panic!("{err}"),
+    };
+
+    let sample_rate = match discription[0].parse::<u32>() {
+        Ok(num) => num,
+        Err(_) => panic!("sample rate is NaN"),
+    };
+
+    let channels = match discription[1].parse::<u16>() {
+        Ok(num) => num,
+        Err(_) => panic!("number of channels is is NaN"),
+    };
+
+    let duration = match discription[2].parse::<u32>() {
+        Ok(num) => num,
+        Err(_) => panic!("duration is is NaN"),
+    };
+
+    let kind = match discription[3].parse::<u32>() {
+        Ok(num) => {
+            if num>2 {
+                panic!("kind out of range");
+            }
+            num
+        },
+        Err(_) => panic!("kind is is NaN"),
+    };
+
+    let sample_format = if kind==2 {SampleFormat::Float} else {SampleFormat::Int};
+    let bits_per_sample = if kind==2 {32} else {8};
+
     let spec = WavSpec {
-        channels: NUM_CHANNELS,
-        sample_rate: SAMPLE_RATE,
-        bits_per_sample: BITS_PER_SAMPLE,
-        sample_format: SampleType::FORMAT,
+        channels,
+        sample_rate,
+        bits_per_sample,
+        sample_format,
     };
     let mut wav = WavWriter::create("sound.wav", spec)?;
-    let mut channel: u64 = 0;
+    let duration = sample_rate*duration*(channels as u32);
 
-    for t in 0..DURATION {
-        // let mut t = t as f32;
-        // if channel > NUM_CHANNELS as u64 {
-        //     channel = 0;
-        //     t = t.sin();
-        // } else {
-        //     channel += 1;
-        //     t = t.cos();
-        // }
-
-        let t = t>>5|(t>>2)*(t>>5);
-        wav.write_sample(t as SampleType)?;
+    match kind {
+        0 => {
+            for t in 0..duration {
+                let t = scope.run_script(format!("t({t})").as_str(), "main")
+                .expect("ruhroh something went wrong").parse::<f32>().unwrap();
+        
+                //println!("{t}");
+                
+                wav.write_sample(t as i8)?;
+            }
+        },
+        1 => {
+            for t in 0..duration {
+                let t = scope.run_script(format!("t({t})").as_str(), "main")
+                .expect("ruhroh something went wrong").parse::<f32>().unwrap() as u8;
+        
+                //println!("{t}");
+                
+                wav.write_sample(t as i8)?;
+            }
+        },
+        2 => {
+            for t in 0..duration {
+                let t = scope.run_script(format!("t({t})").as_str(), "main")
+                .expect("ruhroh something went wrong").parse::<f32>().unwrap();
+        
+                //println!("{t}");
+                
+                wav.write_sample(t as f32)?;
+            }
+        },
+        _ => unreachable!()
     }
 
     Ok(())

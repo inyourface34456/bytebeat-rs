@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 hound = "3.5.1"
+jstime_core = "0.54.0"
 rand = "0.8.5"
